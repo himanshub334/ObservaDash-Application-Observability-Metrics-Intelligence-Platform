@@ -1,0 +1,49 @@
+services:
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    environment:
+      POSTGRES_DB: observadash
+      POSTGRES_USER: observadash
+      POSTGRES_PASSWORD: observadash
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data", "./service/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U observadash -d observadash"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  service:
+    build: ./service
+    environment:
+      DATABASE_URL: postgresql://observadash:observadash@postgres:5432/observadash
+      REDIS_URL: redis://redis:6379/0
+      AWS_CLOUDWATCH_ENABLED: ${AWS_CLOUDWATCH_ENABLED:-false}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      CLOUDWATCH_NAMESPACE: ${CLOUDWATCH_NAMESPACE:-ObservaDash}
+    ports: ["8000:8000"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+  collector:
+    build: ./collector
+    environment:
+      API_URL: http://service:8000
+      SCRAPE_TARGET: ${SCRAPE_TARGET:-}
+      COLLECTOR_INTERVAL_SECONDS: ${COLLECTOR_INTERVAL_SECONDS:-10}
+    depends_on: [service]
+  frontend:
+    build: ./frontend
+    ports: ["5173:5173"]
+    environment:
+      VITE_API_URL: http://localhost:8000
+    depends_on: [service]
+volumes:
+  pgdata:
